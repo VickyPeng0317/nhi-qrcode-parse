@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>健保 QR Code 處方箋解析器</title>
+    <!-- 引入 Tailwind CSS 用於快速響應式排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 jsQR 用於解析圖片中的 QR Code -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+        /* 隱藏捲軸但保留捲動功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 pb-10">
+
+    <!-- 頂部導航列 -->
+    <header class="bg-teal-600 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="8" y1="12" x2="16" y2="12"></line><line x1="12" y1="8" x2="12" y2="16"></line></svg>
+                處方箋 QR Code 解析
+            </h1>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-4 mt-6">
+        
+        <!-- 輸入區塊 -->
+        <section class="glass-panel shadow-sm rounded-2xl p-5 mb-6">
+            <div class="flex flex-col sm:flex-row gap-4">
+                
+                <!-- 圖片上傳區 -->
+                <div class="flex-1">
+                    <label class="block text-sm font-semibold text-slate-700 mb-2">選項一：上傳 QR Code 圖片</label>
+                    <div class="relative border-2 border-dashed border-teal-300 rounded-xl p-4 text-center hover:bg-teal-50 transition cursor-pointer" onclick="document.getElementById('file-upload').click()">
+                        <svg class="mx-auto h-8 w-8 text-teal-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span class="text-sm text-slate-600">點擊上傳圖片或拍照</span>
+                        <input id="file-upload" type="file" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                    </div>
+                </div>
+
+                <!-- 文字輸入區 -->
+                <div class="flex-1">
+                    <div class="flex justify-between items-end mb-2">
+                        <label class="block text-sm font-semibold text-slate-700">選項二：貼上條碼字串</label>
+                        <button onclick="loadTestData()" class="text-xs text-teal-600 bg-teal-100 px-2 py-1 rounded hover:bg-teal-200 transition">載入範例</button>
+                    </div>
+                    <textarea id="qr-input" rows="4" class="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none" placeholder="請在此貼上以分號(;)分隔的處方箋資料字串..."></textarea>
+                </div>
+            </div>
+
+            <div class="mt-4 flex flex-col sm:flex-row gap-3">
+                <button onclick="processInput()" class="w-full bg-teal-600 text-white font-bold py-3 px-4 rounded-xl shadow hover:bg-teal-700 active:bg-teal-800 transition flex justify-center items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    開始解析
+                </button>
+                <button onclick="clearAll()" class="w-full sm:w-auto bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-xl shadow hover:bg-slate-300 transition">
+                    清除
+                </button>
+            </div>
+            <div id="error-msg" class="hidden mt-3 text-red-500 text-sm text-center font-medium"></div>
+        </section>
+
+        <!-- 解析結果呈現區 (預設隱藏) -->
+        <section id="result-section" class="hidden space-y-4">
+            
+            <!-- 病患與基本資料 -->
+            <div class="glass-panel shadow-sm rounded-2xl overflow-hidden">
+                <div class="bg-slate-800 text-white px-4 py-2 text-sm font-bold flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    病患與就醫基本資料
+                </div>
+                <div class="p-4 grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-2 text-sm">
+                    <div class="col-span-2 md:col-span-3 pb-2 border-b border-slate-100">
+                        <p class="text-xs text-slate-500 mb-1">醫療機構代號</p>
+                        <p class="font-bold text-base text-slate-800" id="r-hospital">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">姓名</p>
+                        <p class="font-bold text-base text-teal-700" id="r-name">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">身分證字號</p>
+                        <p class="font-bold text-slate-800" id="r-id">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">出生日期</p>
+                        <p class="font-medium text-slate-800" id="r-birth">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">就醫日期</p>
+                        <p class="font-medium text-slate-800" id="r-date">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">處方箋種類</p>
+                        <span class="inline-block px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-bold" id="r-type">-</span>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">就醫科別</p>
+                        <p class="font-medium text-slate-800" id="r-dept">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">給藥日份</p>
+                        <p class="font-bold text-indigo-600" id="r-days">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">免部份負擔碼</p>
+                        <p class="font-medium text-slate-800" id="r-copay">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">就醫序號</p>
+                        <p class="font-medium text-slate-800" id="r-seq">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">案件分類</p>
+                        <p class="font-medium text-slate-800" id="r-case">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">診治醫師代號</p>
+                        <p class="font-medium text-slate-800" id="r-doctor">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 診斷與備註 -->
+            <div class="glass-panel shadow-sm rounded-2xl overflow-hidden">
+                <div class="bg-indigo-600 text-white px-4 py-2 text-sm font-bold flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                    診斷碼 & 備註
+                </div>
+                <div class="p-4 space-y-4 text-sm">
+                    <div>
+                        <p class="text-xs text-slate-500 mb-2">國際疾病分類碼 (ICD)</p>
+                        <div id="r-icd" class="flex flex-wrap gap-2">
+                            <!-- 標籤會塞在這邊 -->
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-500 mb-1">備註說明 (如過敏史)</p>
+                        <div id="r-remarks" class="p-3 bg-red-50 text-red-800 rounded-lg border border-red-100 min-h-[3rem]">
+                            無
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 藥品清單 (手機版優化的卡片列表) -->
+            <div class="glass-panel shadow-sm rounded-2xl overflow-hidden">
+                <div class="bg-teal-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31"></path><path d="M14 9.3V1.99"></path><path d="M8.5 2h7"></path><path d="M14 9.3a6.5 6.5 0 1 1-4 0"></path><path d="M5.52 16h12.96"></path></svg>
+                        用藥明細
+                    </div>
+                    <span class="text-xs bg-teal-800 px-2 py-0.5 rounded-full" id="r-med-count">共 0 項</span>
+                </div>
+                <div class="p-3 bg-slate-50" id="r-meds-container">
+                    <!-- 藥品卡片動態產生處 -->
+                </div>
+            </div>
+
+        </section>
+        
+        <!-- 用於解析圖片的隱藏 Canvas -->
+        <canvas id="qr-canvas" class="hidden"></canvas>
+    </main>
+
+    <script>
+        // 常見處方箋種類對照
+        const typeMap = {
+            '1': '一般處方 (1)',
+            '2': '連續處方 (2)',
+            '3': '其他 (3)'
+        };
+
+        // 載入範例資料
+        function loadTestData() {
+            const testStr = "1136090519;2;04;施智仁;N120367393;0561119;12;1150525;0005;28;B10;I10#R55#F41.9#G90.01#R42;B120514847; ;BC24131100;1;QOD;PO;14;BC23374100;.5;QD;PO;14;AC285921G0;1;BID;PO;56;";
+            document.getElementById('qr-input').value = testStr;
+            showError(""); // clear errors
+        }
+
+        function clearAll() {
+            document.getElementById('qr-input').value = "";
+            document.getElementById('file-upload').value = "";
+            document.getElementById('result-section').classList.add('hidden');
+            showError("");
+        }
+
+        function showError(msg) {
+            const errEl = document.getElementById('error-msg');
+            if (msg) {
+                errEl.innerText = msg;
+                errEl.classList.remove('hidden');
+            } else {
+                errEl.innerText = "";
+                errEl.classList.add('hidden');
+            }
+        }
+
+        // 民國日期格式化 (例如：0561119 -> 56年11月19日, 1150525 -> 115年05月25日)
+        function formatROCDate(dateStr) {
+            if (!dateStr || dateStr.trim() === "") return "-";
+            dateStr = dateStr.trim();
+            if (dateStr.length !== 7) return dateStr; // 如果格式非預期，直接回傳
+            const year = parseInt(dateStr.substring(0, 3), 10);
+            const month = dateStr.substring(3, 5);
+            const day = dateStr.substring(5, 7);
+            return `${year}年 ${month}月 ${day}日`;
+        }
+
+        // 處理圖片上傳與 QR 解析
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.getElementById('qr-canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 設定適當大小
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    // 使用 jsQR 解析
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: "dontInvert",
+                    });
+
+                    if (code) {
+                        document.getElementById('qr-input').value = code.data;
+                        showError("");
+                        processInput(); // 自動觸發解析
+                    } else {
+                        showError("無法從圖片中讀取 QR Code，請確認圖片清晰度或嘗試手動輸入字串。");
+                    }
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 核心解析邏輯
+        function processInput() {
+            const inputStr = document.getElementById('qr-input').value.trim();
+            if (!inputStr) {
+                showError("請先輸入或上傳條碼資料");
+                return;
+            }
+
+            try {
+                // 依照規則：以 ; 區隔
+                const parts = inputStr.split(';');
+                
+                // 基本防呆：前13個基本+1個備註+至少1個藥品(5欄) = 最少需要 19 個欄位 (若含最後的分號空字串則可能是 20)
+                if (parts.length < 15) {
+                    throw new Error("格式不符規定，欄位數量不足 (未達基本資料要求)。");
+                }
+
+                // --- 1. 萃取基本資料 ---
+                const basicInfo = {
+                    hospital: parts[0],
+                    type: typeMap[parts[1]] || parts[1] || '-',
+                    caseClass: parts[2] || '-',
+                    name: parts[3] || '-',
+                    id: parts[4] || '-',
+                    birth: formatROCDate(parts[5]),
+                    dept: parts[6] || '-',
+                    visitDate: formatROCDate(parts[7]),
+                    seq: parts[8] || '-',
+                    days: parts[9] ? parts[9] + ' 天' : '-',
+                    copay: parts[10] || '-',
+                    // 疾病分類碼可能有多個，以 # 結尾
+                    icdCodes: parts[11] ? parts[11].split('#').filter(c => c.trim() !== '') : [],
+                    doctor: parts[12] || '-',
+                    remarks: parts[13] && parts[13].trim() !== '' ? parts[13] : '無'
+                };
+
+                // --- 2. 萃取藥品資料 (第15個欄位(index 14)開始，每5個為一組) ---
+                const meds = [];
+                for (let i = 14; i < parts.length; i += 5) {
+                    // 防呆：如果代碼欄位為空(可能是最後多出的分號造成的空陣列元素)，就跳出
+                    if (!parts[i] || parts[i].trim() === '') continue;
+                    
+                    // 確保有足夠欄位構成一個完整藥品
+                    if (i + 4 < parts.length) {
+                        meds.push({
+                            code: parts[i],
+                            dosage: parts[i+1],
+                            freq: parts[i+2],
+                            route: parts[i+3],
+                            total: parts[i+4]
+                        });
+                    }
+                }
+
+                renderResults(basicInfo, meds);
+                showError("");
+                
+                // 捲動到結果區塊
+                setTimeout(() => {
+                    document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
+
+            } catch (err) {
+                console.error(err);
+                showError(err.message || "解析失敗，請確認字串格式是否符合健保規範。");
+                document.getElementById('result-section').classList.add('hidden');
+            }
+        }
+
+        // 渲染結果到畫面上
+        function renderResults(info, meds) {
+            // 基本欄位
+            document.getElementById('r-hospital').innerText = info.hospital;
+            document.getElementById('r-name').innerText = info.name;
+            document.getElementById('r-id').innerText = info.id;
+            document.getElementById('r-birth').innerText = info.birth;
+            document.getElementById('r-date').innerText = info.visitDate;
+            document.getElementById('r-type').innerText = info.type;
+            document.getElementById('r-dept').innerText = info.dept;
+            document.getElementById('r-days').innerText = info.days;
+            document.getElementById('r-copay').innerText = info.copay;
+            document.getElementById('r-seq').innerText = info.seq;
+            document.getElementById('r-case').innerText = info.caseClass;
+            document.getElementById('r-doctor').innerText = info.doctor;
+
+            // ICD Tags
+            const icdContainer = document.getElementById('r-icd');
+            icdContainer.innerHTML = '';
+            if (info.icdCodes.length > 0) {
+                info.icdCodes.forEach(code => {
+                    const span = document.createElement('span');
+                    span.className = "bg-indigo-100 text-indigo-700 px-2 py-1 rounded text-xs font-bold border border-indigo-200";
+                    span.innerText = code;
+                    icdContainer.appendChild(span);
+                });
+            } else {
+                icdContainer.innerHTML = '<span class="text-slate-400">無資料</span>';
+            }
+
+            // 備註
+            document.getElementById('r-remarks').innerText = info.remarks;
+            
+            // 處理備註樣式 (如果有資料就比較顯眼)
+            const remarksEl = document.getElementById('r-remarks');
+            if (info.remarks !== '無') {
+                remarksEl.className = "p-3 bg-red-50 text-red-800 rounded-lg border border-red-200 font-medium";
+            } else {
+                remarksEl.className = "p-3 bg-slate-100 text-slate-500 rounded-lg";
+            }
+
+            // 藥品卡片
+            document.getElementById('r-med-count').innerText = `共 ${meds.length} 項`;
+            const medsContainer = document.getElementById('r-meds-container');
+            medsContainer.innerHTML = '';
+
+            if (meds.length === 0) {
+                medsContainer.innerHTML = '<div class="text-center text-slate-400 py-6 text-sm">無藥品資料</div>';
+            } else {
+                meds.forEach((med, index) => {
+                    // 為了小數點排版美觀，若為 .5 補 0 變 0.5 (純視覺優化)
+                    const displayDosage = med.dosage.startsWith('.') ? '0' + med.dosage : med.dosage;
+                    const displayTotal = med.total.startsWith('.') ? '0' + med.total : med.total;
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white p-4 rounded-xl shadow-sm mb-3 border-l-4 border-teal-500 relative";
+                    card.innerHTML = `
+                        <div class="absolute top-0 right-0 bg-slate-100 text-slate-400 text-xs px-2 py-1 rounded-bl-lg rounded-tr-xl font-mono">#${index + 1}</div>
+                        <div class="font-bold text-lg text-slate-800 mb-3 font-mono break-all pr-6">${med.code}</div>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div class="bg-slate-50 p-2 rounded flex justify-between items-center">
+                                <span class="text-slate-500 text-xs">單次用量</span>
+                                <span class="font-bold text-teal-700 text-base">${displayDosage}</span>
+                            </div>
+                            <div class="bg-slate-50 p-2 rounded flex justify-between items-center">
+                                <span class="text-slate-500 text-xs">總數量</span>
+                                <span class="font-bold text-indigo-700 text-base">${displayTotal}</span>
+                            </div>
+                            <div class="bg-slate-50 p-2 rounded flex justify-between items-center">
+                                <span class="text-slate-500 text-xs">頻率</span>
+                                <span class="font-semibold text-slate-700">${med.freq}</span>
+                            </div>
+                            <div class="bg-slate-50 p-2 rounded flex justify-between items-center">
+                                <span class="text-slate-500 text-xs">途徑</span>
+                                <span class="font-semibold text-slate-700">${med.route}</span>
+                            </div>
+                        </div>
+                    `;
+                    medsContainer.appendChild(card);
+                });
+            }
+
+            // 顯示結果區塊
+            document.getElementById('result-section').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
